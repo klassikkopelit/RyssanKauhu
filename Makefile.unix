@@ -1,0 +1,22 @@
+# Simple Makefile for systems with sdl2-config (Linux, macOS/Homebrew, MSYS2).
+# For everything else use CMake (see README.md).
+
+CC      ?= cc
+SDL_CFLAGS := $(shell sdl2-config --cflags)
+SDL_LIBS   := $(shell sdl2-config --libs)
+CFLAGS  ?= -O2 -Wall -Wextra
+CFLAGS  += -std=c99 $(SDL_CFLAGS)
+
+SRC = src/main.c src/game.c src/platform.c src/gfx.c src/sound.c src/data.c src/files.c
+OBJ = $(SRC:.c=.o)
+
+ryssankauhu-sdl: $(OBJ)
+	$(CC) -o $@ $(OBJ) $(SDL_LIBS)
+
+%.o: %.c src/*.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+clean:
+	rm -f $(OBJ) ryssankauhu-sdl ryssankauhu-sdl.exe
+
+.PHONY: clean

@@ -1,0 +1,6 @@
+build*/
+*.o
+ryssankauhu-sdl
+ryssankauhu-sdl.exe
+dist/
+.DS_Store
