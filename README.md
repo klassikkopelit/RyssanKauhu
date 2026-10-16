@@ -24,6 +24,17 @@ the screen to aim and fire, tap to continue when the game waits for a key
 (start, next level, new game), and use the Esc button to quit. Turn the device
 sideways for a bigger picture.
 
+## Download
+
+Version 1.0.0:
+
+- [Windows (64-bit)](https://github.com/klassikkopelit/RyssanKauhu/releases/download/v1.0.0/ryssankauhu-v1.0.0-windows-x64.zip)
+- [macOS (Apple silicon and Intel)](https://github.com/klassikkopelit/RyssanKauhu/releases/download/v1.0.0/ryssankauhu-v1.0.0-macos-universal.zip)
+- [Linux (64-bit)](https://github.com/klassikkopelit/RyssanKauhu/releases/download/v1.0.0/ryssankauhu-v1.0.0-linux-x64.zip)
+
+All versions: [Releases](https://github.com/klassikkopelit/RyssanKauhu/releases).
+You also need the original `GRAPH.DAT`, see `readme.txt` in the zip.
+
 ## Building
 
 Requirements: a C99 compiler, CMake ≥ 3.10 and SDL2 (2.0.10 or newer).
