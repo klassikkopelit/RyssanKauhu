@@ -1,0 +1,234 @@
+# Builds RYSSÄN KAUHU for Windows, macOS and Linux and packs each build into a
+# .zip (binary + readme.txt + the libraries it needs).
+#
+#  - every push to main, pull request or manual run: builds the zips and
+#    attaches them to the workflow run as artifacts
+#  - pushing a tag that starts with "v" (e.g. v1.0.0): additionally creates
+#    a GitHub release for that tag with the three zips attached
+#
+#    git tag v1.0.0 && git push origin v1.0.0
+
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SDL_VERSION: 2.32.10
+
+jobs:
+  linux:
+    name: Linux x64
+    # Oldest supported runner, so the binary runs on older glibc versions too
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="$GITHUB_REF_NAME"; else v="dev-${GITHUB_SHA::7}"; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      # SDL picks these up at build time but loads them at runtime with
+      # dlopen, so the finished binary only depends on glibc.
+      - name: Install SDL2 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
+            libxi-dev libxss-dev libxinerama-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev \
+            libdbus-1-dev libudev-dev
+
+      - name: Cache SDL2
+        id: cache-sdl
+        uses: actions/cache@v4
+        with:
+          path: sdl2-static
+          key: sdl2-${{ env.SDL_VERSION }}-ubuntu22.04-x64-static-v1
+
+      - name: Build SDL2 (static)
+        if: steps.cache-sdl.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o sdl.tar.gz "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL2-${SDL_VERSION}.tar.gz"
+          tar xzf sdl.tar.gz
+          cmake -S "SDL2-${SDL_VERSION}" -B sdl-build -DCMAKE_BUILD_TYPE=Release \
+            -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_STATIC_PIC=ON -DSDL_TEST=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/sdl2-static"
+          cmake --build sdl-build --parallel
+          cmake --install sdl-build
+          cp "SDL2-${SDL_VERSION}/LICENSE.txt" sdl2-static/LICENSE-SDL2.txt
+
+      - name: Build RYSSÄN KAUHU
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/sdl2-static"
+          cmake --build build --parallel
+          strip build/ryssankauhu-sdl
+          echo "Shared library dependencies:"
+          ldd build/ryssankauhu-sdl
+
+      - name: Package
+        run: |
+          bash packaging/package.sh linux "ryssankauhu-${VERSION}-linux-x64" \
+            build/ryssankauhu-sdl sdl2-static/LICENSE-SDL2.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ryssankauhu-linux-x64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  macos:
+    name: macOS universal
+    runs-on: macos-14
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '10.13'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="$GITHUB_REF_NAME"; else v="dev-${GITHUB_SHA::7}"; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Cache SDL2
+        id: cache-sdl
+        uses: actions/cache@v4
+        with:
+          path: sdl2-static
+          key: sdl2-${{ env.SDL_VERSION }}-macos-universal-static-v1
+
+      - name: Build SDL2 (static, arm64 + x86_64)
+        if: steps.cache-sdl.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o sdl.tar.gz "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL2-${SDL_VERSION}.tar.gz"
+          tar xzf sdl.tar.gz
+          cmake -S "SDL2-${SDL_VERSION}" -B sdl-build -DCMAKE_BUILD_TYPE=Release \
+            -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST=OFF \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_INSTALL_PREFIX="$PWD/sdl2-static"
+          cmake --build sdl-build --parallel
+          cmake --install sdl-build
+          cp "SDL2-${SDL_VERSION}/LICENSE.txt" sdl2-static/LICENSE-SDL2.txt
+
+      - name: Build RYSSÄN KAUHU
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/sdl2-static" \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          cmake --build build --parallel
+          strip build/ryssankauhu-sdl
+          codesign --force --sign - build/ryssankauhu-sdl
+          lipo -info build/ryssankauhu-sdl
+          echo "Shared library dependencies:"
+          otool -L build/ryssankauhu-sdl
+
+      - name: Package
+        run: |
+          bash packaging/package.sh macos "ryssankauhu-${VERSION}-macos-universal" \
+            build/ryssankauhu-sdl sdl2-static/LICENSE-SDL2.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ryssankauhu-macos-universal
+          path: dist/*.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            curl
+            zip
+
+      - name: Set version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="$GITHUB_REF_NAME"; else v="dev-${GITHUB_SHA::7}"; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      # Official SDL2 MinGW development package (headers, import libs, SDL2.dll)
+      - name: Download SDL2
+        run: |
+          curl -fsSL -o sdl.tar.gz "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL2-devel-${SDL_VERSION}-mingw.tar.gz"
+          tar xzf sdl.tar.gz
+
+      - name: Build RYSSÄN KAUHU
+        run: |
+          sdl_dir="$(cygpath -m "$PWD/SDL2-${SDL_VERSION}")"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSDL2_DIR="$sdl_dir/cmake" -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc"
+          cmake --build build
+          strip build/ryssankauhu-sdl.exe
+
+      # SDL2.dll, plus any MinGW runtime DLL the exe or SDL2.dll imports
+      # (normally none: everything else is part of Windows 10/11).
+      - name: Collect DLLs
+        run: |
+          mkdir -p dlls
+          cp "SDL2-${SDL_VERSION}/x86_64-w64-mingw32/bin/SDL2.dll" dlls/
+          for dll in $(objdump -p build/ryssankauhu-sdl.exe dlls/SDL2.dll | awk '/DLL Name:/ {print $3}' | sort -u); do
+            if [ -f "/ucrt64/bin/$dll" ]; then cp "/ucrt64/bin/$dll" dlls/; fi
+          done
+          echo "ryssankauhu-sdl.exe imports:"
+          objdump -p build/ryssankauhu-sdl.exe | grep "DLL Name"
+          echo "Bundled DLLs:"
+          ls dlls
+          cp "SDL2-${SDL_VERSION}/LICENSE.txt" LICENSE-SDL2.txt
+
+      - name: Package
+        run: |
+          CRLF=1 bash packaging/package.sh windows "ryssankauhu-${VERSION}-windows-x64" \
+            build/ryssankauhu-sdl.exe dlls/*.dll LICENSE-SDL2.txt "SDL2-${SDL_VERSION}/README-SDL.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ryssankauhu-windows-x64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ryssankauhu-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY" \
+              --title "RYSSÄN KAUHU $GITHUB_REF_NAME" --generate-notes
+          fi
