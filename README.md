@@ -16,6 +16,14 @@ original (sprite scaler, font, Sound Blaster mixer) is re-implemented in
 **You need the original game files.** The port reads `GRAPH.DAT` at runtime
 (graphics, fonts, sounds and lookup tables are all in it).
 
+## Play in the browser
+
+**[Play RYSSÄN KAUHU in your browser](https://klassikkopelit.github.io/RyssanKauhu/)**,
+no installation or game files needed. Works on phones and tablets too: touch
+the screen to aim and fire, tap to continue when the game waits for a key
+(start, next level, new game), and use the Esc button to quit. Turn the device
+sideways for a bigger picture.
+
 ## Building
 
 Requirements: a C99 compiler, CMake ≥ 3.10 and SDL2 (2.0.10 or newer).
